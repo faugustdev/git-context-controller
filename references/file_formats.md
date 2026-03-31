@@ -1,8 +1,95 @@
-# GCC File Format Reference
+# GCC v2 File Format Reference
 
-## main.md
+## index.yaml (v2 — primary format)
 
-The global roadmap. Updated on every MERGE and periodically on significant COMMITs.
+The single source of truth. Replaces v1's `commit.md`, `log.md`, and `metadata.yaml`.
+
+```yaml
+version: 2
+mode: git                    # "git" or "standalone"
+created: "2025-01-10T08:00:00Z"
+config:
+  proactive_commits: true
+  worktree_ttl: 24h          # git mode only
+  bridge_to_aiyoucli: auto   # auto | off | manual
+
+current_branch: main
+
+timeline:
+  - id: INIT
+    hash: a1b2c3d
+    intent: "gcc initialized"
+    branch: main
+    date: "2025-01-10T08:00:00Z"
+
+  - id: C001
+    hash: e4f5a6b
+    intent: "implement retry logic for API calls"
+    branch: feature-resilience
+    date: "2025-01-15T10:30:00Z"
+
+  - id: C002
+    hash: null                  # decision-only entry (no commit)
+    intent: "evaluated caching strategies"
+    note: "descartamos Redis — dependency too heavy for this use case"
+    branch: main
+    date: "2025-01-16T14:00:00Z"
+
+  - id: C003
+    hash: 7c8d9e0
+    intent: "release v1.0.0"
+    note: "descartamos semantic-release por overhead para repo pequeño"
+    branch: main
+    date: "2025-01-20T09:00:00Z"
+
+worktrees:
+  - name: refactor-auth
+    path: ../gcc-wt-refactor-auth
+    branch: refactor-auth
+    created: "2025-01-18T10:00:00Z"
+    ttl: 24h
+    status: active             # active | merged | expired | abandoned
+
+decisions: []                  # reserved for future structured decisions
+```
+
+### Timeline Entry Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | yes | Sequential ID: `INIT`, `C001`, `C002`, ... |
+| `hash` | yes | Git short hash, or `null` for decision-only entries |
+| `intent` | yes | Why this commit exists (1 line, imperative) |
+| `note` | no | Decision context git can't capture (rejected alternatives, trade-offs) |
+| `branch` | yes | Branch name at time of commit |
+| `date` | yes | UTC ISO 8601 timestamp |
+
+### Worktree Entry Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | yes | Worktree identifier |
+| `path` | yes | Filesystem path (convention: `../gcc-wt-<name>`) |
+| `branch` | yes | Git branch checked out in worktree |
+| `created` | yes | UTC ISO 8601 timestamp |
+| `ttl` | yes | Time-to-live before auto-cleanup (e.g., `24h`, `7d`) |
+| `status` | yes | `active`, `merged`, `expired`, or `abandoned` |
+
+### Token Cost Comparison
+
+| Format | Tokens per entry | 10 entries |
+|--------|-----------------|------------|
+| v1 `commit.md` | ~500 | ~5,000 |
+| v2 `index.yaml` (no reconstruction) | ~50 | ~500 |
+| v2 + `git show` reconstruction | ~200 | ~2,000 |
+
+## Standalone Mode Files
+
+When `mode: standalone`, GCC also creates these v1-compatible files:
+
+### main.md
+
+Global roadmap. Updated on MERGE and significant COMMITs.
 
 ```markdown
 # Project Roadmap
@@ -13,108 +100,41 @@ The global roadmap. Updated on every MERGE and periodically on significant COMMI
 
 ## Milestones
 ### M1: Feature X implemented
-- Branch: feature-x
-- Commits: 3
 - Status: merged
 
-### M2: Bug fix Y
-- Branch: fix-y
-- Commits: 1
-- Status: active
-
 ## Active Branches
-- `experiment-z`: Testing alternative approach for caching
+- `experiment-z`: Testing alternative caching approach
 ```
 
-## commit.md
+### log.md
 
-Each commit entry captures the full reasoning context, not just a diff summary.
-
-```markdown
-## [C003] Implement retry logic for API calls
-- **Date**: 2025-01-15T10:30:00Z
-- **Branch**: feature-resilience
-- **Branch Purpose**: Add fault tolerance to external API integrations
-- **Previous Progress**: Identified failure patterns in logs; designed retry strategy with exponential backoff
-- **This Commit's Contribution**: Implemented `retry_with_backoff(fn, max_retries=3)` in `utils/http.py`. Added unit tests covering timeout, 5xx, and network error scenarios. Validated against staging API.
-- **Files touched**: utils/http.py, tests/test_http.py
-```
-
-## log.md
-
-Fine-grained OTA (Observation-Thought-Action) trace entries. Keep the last 50 entries maximum.
+OTA execution log. Standalone mode only (git mode uses `index.yaml` timeline).
 
 ```markdown
 ---
-**[OTA-042]** 2025-01-15T10:15:00Z | Branch: feature-resilience
-- **Observation**: API calls to /users endpoint failing with 503 errors intermittently
-- **Thought**: Need exponential backoff rather than fixed delay; should cap at 3 retries to avoid infinite loops
-- **Action**: Implementing retry_with_backoff() in utils/http.py
+**[OTA-042]** 2025-01-15T10:15:00Z | Branch: main
+- **Observation**: API calls failing intermittently
+- **Thought**: Need exponential backoff
+- **Action**: Implementing retry logic
 
 ---
-**[OTA-043]** 2025-01-15T10:28:00Z | Branch: feature-resilience
-- **Observation**: Tests passing for timeout and 5xx scenarios
-- **Thought**: Ready to commit this milestone - retry logic is complete and validated
-- **Action**: COMMIT with summary of retry implementation
 ```
 
-## metadata.yaml
+## Bridge Log (.bridge-log)
 
-Structured infrastructure state. Updated on every operation.
-
-```yaml
-version: 1
-created: "2025-01-10T08:00:00Z"
-proactive_commits: true
-branches:
-  - name: main
-    status: active
-    created: "2025-01-10T08:00:00Z"
-  - name: feature-resilience
-    status: active
-    created: "2025-01-15T09:00:00Z"
-    parent: main
-  - name: experiment-cache
-    status: abandoned
-    created: "2025-01-12T14:00:00Z"
-    reason: "Redis dependency too heavy for this use case"
-file_tree:
-  - src/main.py
-  - src/utils/http.py
-  - tests/test_http.py
-dependencies:
-  - requests>=2.28
-  - pytest>=7.0
-config:
-  language: python
-  framework: fastapi
-```
-
-## Branch Directory Structure
-
-Each branch under `.GCC/branches/<branch-name>/` contains:
+Internal file tracking which entries have been synced to aiyoucli. One hash per line.
 
 ```
-.GCC/branches/feature-resilience/
-├── commit.md    # Commits specific to this branch
-├── log.md       # OTA traces for this branch
-└── summary.md   # Branch purpose and current status
+a1b2c3d
+e4f5a6b
+7c8d9e0
 ```
 
-### summary.md (per-branch)
+## Migration from v1
 
-```markdown
-# Branch: feature-resilience
+Run `scripts/gcc_init.sh --upgrade` to:
+1. Back up v1 files to `.GCC/.v1-backup/`
+2. Create `index.yaml` from existing state
+3. Preserve `main.md` and `log.md` if in standalone mode
 
-## Purpose
-Add fault tolerance to external API integrations to handle intermittent 503 errors.
-
-## Status: active
-## Parent: main
-## Created: 2025-01-15T09:00:00Z
-
-## Key Decisions
-- Using exponential backoff (not fixed delay)
-- Max 3 retries to prevent cascade failures
-- Logging all retry attempts for observability
-```
+v1 files are not deleted, only superseded by `index.yaml`.
