@@ -1,12 +1,12 @@
-# Git Context Controller (GCC)
+# Git Context Controller (GCC) v2
 
-[![Release](https://img.shields.io/github/v/release/faugustdev/git-context-controller)](https://github.com/faugustdev/git-context-controller/releases/tag/v1.0.0)
+[![Release](https://img.shields.io/github/v/release/faugustdev/git-context-controller)](https://github.com/faugustdev/git-context-controller/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Skills.sh](https://img.shields.io/badge/skills.sh-compatible-blue)](https://skills.sh)
 
-**Structured context management framework for LLM agents.**
+**Lean, git-backed context management for LLM agents.**
 
-GCC implements Git-like operations (COMMIT, BRANCH, MERGE, CONTEXT) to manage long-horizon agent memory as a persistent, versioned file system.
+GCC v2 stores **hash + intent + optional decision notes** instead of verbose markdown. Full context is reconstructed on demand via `git show`. Dual mode: git-backed or standalone.
 
 > Based on the research paper: [Git Context Controller](https://arxiv.org/abs/2508.00031)
 
@@ -14,86 +14,56 @@ GCC implements Git-like operations (COMMIT, BRANCH, MERGE, CONTEXT) to manage lo
 
 ## Why GCC?
 
-LLM agents lose context as conversations grow. Critical decisions, technical reasoning, and intermediate results vanish behind token limits. GCC solves this by giving agents a structured memory system:
+LLM agents lose context as conversations grow. GCC solves this by giving agents structured memory:
 
-- **No more lost context** -- milestones are persisted with full technical reasoning
-- **Safe experimentation** -- branches isolate alternative approaches without polluting the main flow
-- **Cross-session continuity** -- agents recover exactly where they left off
-- **Multi-agent handoff** -- one agent's work is readable by another
+- **Lean storage** -- ~50 tokens per entry vs ~500 in v1
+- **Git-backed truth** -- real commits, not narrative copies
+- **Safe experimentation** -- branches via git worktrees for real isolation
+- **Cross-session recovery** -- reconstruct context from hashes on demand
+- **aiyoucli bridge** -- auto-feeds commit data to vector memory when available
 
 ## How It Works
 
-```
-                          ┌─────────────────────────────────┐
-                          │           .GCC/                  │
-                          │                                  │
-                          │  main.md         (roadmap)       │
-                          │  metadata.yaml   (state)         │
-                          │  commit.md       (history)       │
-                          │  log.md          (OTA traces)    │
-                          │                                  │
-                          │  branches/                       │
-                          │    ├── feature-x/                │
-                          │    │   ├── summary.md            │
-                          │    │   ├── commit.md             │
-                          │    │   └── log.md                │
-                          │    └── experiment-y/             │
-                          │        ├── summary.md            │
-                          │        ├── commit.md             │
-                          │        └── log.md                │
-                          └─────────────────────────────────┘
-```
-
-### The OTA Cycle
-
-Agents operate through **Observation-Thought-Action** cycles, logged in real time:
+### Git Mode (with repo)
 
 ```
-┌───────────┐     ┌───────────┐     ┌───────────┐
-│ OBSERVE   │────>│  THINK    │────>│   ACT     │
-│           │     │           │     │           │
-│ Read logs │     │ Analyze   │     │ Execute   │
-│ Check     │     │ Decide    │     │ COMMIT    │
-│ state     │     │ strategy  │     │ BRANCH    │
-└───────────┘     └───────────┘     │ MERGE     │
-      ^                             └─────┬─────┘
-      │                                   │
-      └───────────────────────────────────┘
-              Logged to log.md
+.GCC/
+├── index.yaml       # Single source of truth (~50 tokens/entry)
+├── branches/        # Branch-specific notes
+├── worktrees/       # Worktree tracking
+└── .bridge-log      # Sync state with aiyoucli
+
+index.yaml entry:
+  - id: C001
+    hash: 85c8539        ← pointer to git truth
+    intent: "release prep" ← why
+    note: "descartamos semantic-release por overhead" ← optional decision
+    branch: main
+    date: "2026-02-25T21:40:00Z"
 ```
 
-### Command Flow
+### Standalone Mode (no repo)
+
+Falls back to markdown files compatible with v1:
 
 ```
-  User works on task
-         │
-         ▼
-  ┌──────────────┐    milestone?    ┌──────────┐
-  │  OTA Cycle   │────────────────> │  COMMIT  │──> commit.md
-  │  (ongoing)   │                  └──────────┘
-  └──────┬───────┘
-         │
-         │  need alternative?
-         ▼
-  ┌──────────────┐                  ┌──────────┐
-  │   BRANCH     │────────────────> │ Isolated │──> branches/<name>/
-  │              │                  │ workspace│
-  └──────────────┘                  └────┬─────┘
-                                         │
-                                    validated?
-                                         │
-                                         ▼
-                                    ┌──────────┐
-                                    │  MERGE   │──> main.md updated
-                                    └──────────┘
+.GCC/
+├── index.yaml       # Timeline
+├── main.md          # Roadmap (v1 compat)
+├── log.md           # OTA traces (v1 compat)
+└── branches/
+```
 
-  ┌──────────────┐
-  │  CONTEXT     │──> Retrieve memory at any resolution
-  │  --branch    │    (summary, traces, metadata, full)
-  │  --log       │
-  │  --metadata  │
-  │  --full      │
-  └──────────────┘
+### Context Reconstruction
+
+```
+Agent needs context
+       │
+       ▼
+  gcc_context.sh --summary     ← ~50 tokens, zero git calls
+  gcc_context.sh --last 5      ← reconstructs via git show
+  gcc_context.sh --decisions   ← only entries with notes
+  gcc_context.sh --hash abc123 ← full diff for one commit
 ```
 
 ## Installation
@@ -114,7 +84,8 @@ cp -r gcc/ your-project/.claude/skills/gcc/
 git clone https://github.com/faugustdev/git-context-controller.git
 
 # Initialize GCC in your project
-./scripts/gcc_init.sh /path/to/your/project/.GCC
+cd your-project
+/path/to/scripts/gcc_init.sh
 ```
 
 ## Quick Start
@@ -126,108 +97,130 @@ Once installed, GCC activates automatically. Use commands or natural language:
 | Save progress | `/gcc commit` | "save this milestone" |
 | Try alternative | `/gcc branch experiment` | "branch to try a different approach" |
 | Integrate results | `/gcc merge experiment` | "merge the experiment results" |
-| Recover context | `/gcc context --full` | "where were we?" |
-| View recent work | `/gcc context --log` | "show recent activity" |
-| Check structure | `/gcc context --metadata` | "what files do we have?" |
+| Quick status | `/gcc context --summary` | "where were we?" |
+| Recent work | `/gcc context --last 10` | "show recent activity" |
+| View decisions | `/gcc context --decisions` | "what did we decide about X?" |
+| Deep dive | `/gcc context --hash abc123` | "details on that commit" |
+| Clean up | `/gcc cleanup` | "clean up old worktrees" |
+| Sync memory | `/gcc bridge --sync` | "sync to aiyoucli" |
+
+## Scripts
+
+GCC v2 includes utility scripts for mechanical operations:
+
+| Script | Purpose |
+|---|---|
+| `gcc_init.sh` | Initialize GCC (auto-detects git/standalone) |
+| `gcc_commit.sh` | Real git commit + lean index entry |
+| `gcc_context.sh` | Reconstruct context from hashes |
+| `gcc_bridge.sh` | Feed commit data to aiyoucli vector memory |
+| `gcc_cleanup.sh` | TTL-based worktree cleanup + index pruning |
+
+### gcc_commit.sh
+
+```bash
+gcc_commit.sh "implement retry logic"
+gcc_commit.sh "release prep" "descartamos semantic-release por overhead"
+gcc_commit.sh --staged "hotfix: null check"
+```
+
+### gcc_context.sh
+
+```bash
+gcc_context.sh --summary          # one-line per entry (cheapest)
+gcc_context.sh --last 5           # last 5 with git details
+gcc_context.sh --hash abc123      # full diff for specific commit
+gcc_context.sh --decisions        # only entries with notes
+gcc_context.sh --full             # everything
+```
+
+### gcc_bridge.sh
+
+```bash
+gcc_bridge.sh --status            # check bridge connectivity
+gcc_bridge.sh --sync              # sync all unsynced entries to aiyoucli
+```
+
+### gcc_cleanup.sh
+
+```bash
+gcc_cleanup.sh --dry-run          # show what would be cleaned
+gcc_cleanup.sh --force            # clean without asking
+gcc_cleanup.sh --prune-index 50   # keep last 50 timeline entries
+```
 
 ## Commands Reference
 
 ### COMMIT
 
-Persists a milestone with full technical context.
+Persists a milestone. In git mode, executes a real commit.
 
 ```
 /gcc commit <summary>
 ```
 
-Each commit captures:
-- Sequential ID and timestamp
-- Branch context and purpose
-- Previous progress summary
-- Detailed technical contribution
-- Files touched
-
 ### BRANCH
 
-Creates an isolated workspace for experimentation.
+Creates an isolated workspace. In git mode, uses real git worktrees.
 
 ```
 /gcc branch <name>
 ```
 
-Creates a new directory under `.GCC/branches/<name>/` with its own commit history, OTA log, and summary.
-
 ### MERGE
 
-Synthesizes a completed branch back into the main flow.
+Integrates a branch back. In git mode, real git merge + synthesis note.
 
 ```
 /gcc merge <branch-name>
 ```
 
-Updates `main.md` with results, marks the branch as merged or abandoned, and creates a synthesis commit.
-
 ### CONTEXT
 
-Retrieves historical memory at different resolution levels.
+Retrieves historical memory reconstructed from git.
 
 ```
-/gcc context [--branch [name] | --log [n] | --metadata | --full]
+/gcc context [--summary | --last N | --hash HASH | --decisions | --full]
 ```
 
-| Flag | Returns | Use Case |
+| Flag | Returns | Cost |
 |---|---|---|
-| `--branch` | Branch summary + recent commits | Understand what happened on a branch |
-| `--log [n]` | Last N OTA entries (default: 20) | Debug or resume interrupted work |
-| `--metadata` | Project structure, dependencies | Recover file tree and config |
-| `--full` | Complete roadmap from main.md | Cross-session recovery or agent handoff |
-
-## File Formats
-
-### main.md
-
-Global roadmap with objectives, milestones, and active branches.
-
-### commit.md
-
-Structured commit entries with branch purpose, previous progress, and detailed contribution.
-
-### log.md
-
-Sequential OTA (Observation-Thought-Action) trace entries. Capped at 50 entries.
-
-### metadata.yaml
-
-Infrastructure state: branch registry, file tree, dependencies, configuration.
-
-See [`references/file_formats.md`](references/file_formats.md) for complete format specifications with examples.
+| `--summary` | One-line per entry | ~0 extra tokens |
+| `--last N` | Last N entries with git details | ~200 tokens/entry |
+| `--hash HASH` | Full diff for one commit | Variable |
+| `--decisions` | Only entries with notes | Minimal |
+| `--full` | Everything | All entries |
 
 ## Configuration
 
-GCC behavior is controlled via `metadata.yaml`:
+Controlled via `index.yaml`:
 
 ```yaml
-proactive_commits: true   # Auto-suggest commits after milestones
-proactive_commits: false  # Only commit when explicitly requested
+config:
+  proactive_commits: true     # Auto-suggest commits after milestones
+  worktree_ttl: 24h           # Auto-cleanup expired worktrees
+  bridge_to_aiyoucli: auto    # auto | off | manual
 ```
-
-Toggle with natural language: "enable/disable proactive commits"
 
 ## Project Structure
 
 ```
 git-context-controller/
-├── SKILL.md              # Claude Code skill definition
+├── SKILL.md              # Skill definition (v2)
 ├── README.md             # This file
 ├── LICENSE               # MIT License
 ├── CONTRIBUTING.md       # Contribution guidelines
-├── .gitignore            # Excludes .GCC/ and local files
+├── .gitignore
 ├── scripts/
-│   └── gcc_init.sh       # Initialization script
+│   ├── gcc_init.sh       # Initialization (git detect + index.yaml)
+│   ├── gcc_commit.sh     # Commit + lean entry
+│   ├── gcc_context.sh    # Context reconstruction
+│   ├── gcc_bridge.sh     # aiyoucli memory bridge
+│   └── gcc_cleanup.sh    # Worktree TTL + index pruning
 ├── references/
-│   └── file_formats.md   # Detailed format specifications
+│   └── file_formats.md   # Format specifications (v2)
 └── examples/
-    └── sample_session.md # Example GCC session walkthrough
+    └── sample_session.md # Example session (v2)
 ```
 
 ## Contributing
