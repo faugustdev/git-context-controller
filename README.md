@@ -3,6 +3,8 @@
 [![Release](https://img.shields.io/github/v/release/faugustdev/git-context-controller)](https://github.com/faugustdev/git-context-controller/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Skills.sh](https://img.shields.io/badge/skills.sh-compatible-blue)](https://skills.sh)
+[![DOI](https://img.shields.io/badge/DOI-10.5281/zenodo.19475089-blue)](https://doi.org/10.5281/zenodo.19475089)
+
 
 **Lean, git-backed context management for LLM agents.**
 
